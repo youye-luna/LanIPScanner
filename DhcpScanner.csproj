@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWindowsForms>true</UseWindowsForms>
+    <AssemblyName>LanIPScanner</AssemblyName>
+    <RootNamespace>DhcpScanner</RootNamespace>
+    <Version>1.1.0</Version>
+    <Product>局域网设备扫描工具</Product>
+    <Description>用于扫描局域网中的设备和DHCP服务器</Description>
+    <Copyright>Copyright © 2026</Copyright>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="app.ico" />
+  </ItemGroup>
+
+</Project>
