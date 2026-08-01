@@ -19,4 +19,10 @@
     <EmbeddedResource Include="app.ico" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Update="nmap\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>

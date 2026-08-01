@@ -308,7 +308,7 @@ namespace DhcpScanner
             toolStripStatusCount.Text = $"在线: {totalOnline}，无设备: {totalNoDevice}，DHCP服务器: {totalRouter}";
             toolStripStatusLabel.Text = "扫描完成";
 
-            string message = $"扫描完成！\n\n共扫描 {results.Count} 个IP，{groups.Count} 个网段\n在线设备: {totalOnline}\n无设备: {totalNoDevice}\nDHCP服务器: {totalRouter}";
+            string message = $"扫描完成！\n\n共扫描 {results.Count} 个IP\n在线设备: {totalOnline}\n无设备: {totalNoDevice}\nDHCP服务器: {totalRouter}";
             MessageBox.Show(message, "完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 

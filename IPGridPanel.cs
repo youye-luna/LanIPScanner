@@ -13,6 +13,18 @@ namespace DhcpScanner
         private int Rows => (TotalCells + Cols - 1) / Cols;
         private const int GridPadding = 4;
 
+        /// <summary>
+        /// 格子被单击事件（用于定位）
+        /// </summary>
+        public event Action<int>? CellClicked;
+
+        /// <summary>
+        /// 格子被双击事件（用于弹出详情）
+        /// </summary>
+        public event Action<int>? CellDoubleClicked;
+
+        private int _selectedIndex = -1;
+
         public IPGridPanel()
         {
             _cellColors = new Color[TotalCells];
@@ -43,6 +55,51 @@ namespace DhcpScanner
             for (int i = 0; i < TotalCells; i++)
                 _cellColors[i] = Color.FromArgb(240, 240, 240);
             Invalidate();
+        }
+
+        protected override void OnMouseClick(MouseEventArgs e)
+        {
+            base.OnMouseClick(e);
+            int index = HitTestCell(e.Location);
+            if (index >= 0)
+            {
+                _selectedIndex = index;
+                Invalidate();
+                CellClicked?.Invoke(index);
+            }
+        }
+
+        protected override void OnMouseDoubleClick(MouseEventArgs e)
+        {
+            base.OnMouseDoubleClick(e);
+            int index = HitTestCell(e.Location);
+            if (index >= 0)
+            {
+                _selectedIndex = index;
+                Invalidate();
+                CellDoubleClicked?.Invoke(index);
+            }
+        }
+
+        /// <summary>
+        /// 将点击坐标转换为格子索引，未命中返回 -1
+        /// </summary>
+        private int HitTestCell(Point point)
+        {
+            int cellSize = (Width - GridPadding * 2) / Cols;
+            cellSize = Math.Max(cellSize, 12);
+            int gridWidth = cellSize * Cols;
+            int startX = (Width - gridWidth) / 2;
+            int titleHeight = 22;
+            int scrollY = AutoScrollPosition.Y;
+            int startY = scrollY + titleHeight;
+
+            int col = (point.X - startX) / cellSize;
+            int row = (point.Y - startY) / cellSize;
+            if (col < 0 || col >= Cols || row < 0 || row >= Rows) return -1;
+
+            int index = row * Cols + col;
+            return index >= 0 && index < TotalCells ? index : -1;
         }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -94,6 +151,13 @@ namespace DhcpScanner
                 {
                     using var brush = new SolidBrush(_cellColors[i]);
                     g.FillRectangle(brush, rect);
+                }
+
+                // 选中格子高亮边框
+                if (i == _selectedIndex)
+                {
+                    using var pen = new Pen(Color.FromArgb(255, 87, 34), 2f);
+                    g.DrawRectangle(pen, rect);
                 }
 
                 // 显示数字
