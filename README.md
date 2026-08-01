@@ -1,4 +1,4 @@
-# ScanNet
+# LanIPScanner
 一个普通的多线程局域网IP扫描工具
 原LanIPScanner，因为和其他工具撞名了，所以改了一个
 ## 软件由来
