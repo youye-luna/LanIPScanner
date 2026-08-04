@@ -59,6 +59,11 @@ namespace DhcpScanner
         public bool IsScanning => _isScanning;
 
         /// <summary>
+        /// 扫描并发线程数
+        /// </summary>
+        public int MaxParallelism { get; set; } = 30;
+
+        /// <summary>
         /// 开始扫描网络设备
         /// </summary>
         public async Task StartScanAsync(string ipRange, int startRange = 1, int endRange = 254)
@@ -82,7 +87,7 @@ namespace DhcpScanner
                     Enumerable.Range(startRange, total),
                     new ParallelOptions
                     {
-                        MaxDegreeOfParallelism = 30,
+                        MaxDegreeOfParallelism = MaxParallelism,
                         CancellationToken = _cancellationTokenSource.Token
                     },
                     async (i, token) =>
@@ -344,7 +349,7 @@ namespace DhcpScanner
                         Enumerable.Range(startRange, totalPerSubnet),
                         new ParallelOptions
                         {
-                            MaxDegreeOfParallelism = 30,
+                            MaxDegreeOfParallelism = MaxParallelism,
                             CancellationToken = _cancellationTokenSource.Token
                         },
                         async (i, token) =>
@@ -407,6 +412,24 @@ namespace DhcpScanner
         }
 
         /// <summary>
+        /// 判断IP是否为内网（私有）地址
+        /// 10.0.0.0/8、172.16.0.0/12、192.168.0.0/16
+        /// </summary>
+        public static bool IsPrivateIp(string ip)
+        {
+            var parts = ip.Split('.');
+            if (parts.Length != 4) return false;
+            if (!int.TryParse(parts[0], out int a) || !int.TryParse(parts[1], out int b)) return false;
+            // 10.0.0.0/8
+            if (a == 10) return true;
+            // 172.16.0.0/12
+            if (a == 172 && b >= 16 && b <= 31) return true;
+            // 192.168.0.0/16
+            if (a == 192 && b == 168) return true;
+            return false;
+        }
+
+        /// <summary>
         /// 完整IP范围扫描（如 192.168.1.1 至 192.168.3.254）
         /// </summary>
         public async Task StartIpRangeScanAsync(string startIp, string endIp)
@@ -424,12 +447,18 @@ namespace DhcpScanner
             if (startNum > endNum)
                 throw new ArgumentException("起始IP不能大于结束IP");
 
-            // 构建有效IP列表（跳过最后一段为0的IP）
+            // 构建有效IP列表（跳过最后一段为0的IP，且只保留内网地址）
             var ipList = new List<long>();
             for (long n = startNum; n <= endNum; n++)
             {
-                if ((n & 0xFF) != 0)
+                if ((n & 0xFF) != 0 && IsPrivateIp(LongToIp(n)))
                     ipList.Add(n);
+            }
+
+            if (ipList.Count == 0)
+            {
+                _isScanning = false;
+                throw new ArgumentException("扫描范围内不包含内网地址");
             }
 
             // 统计网段数量（前三段相同为一个网段），超过100个直接抛出
@@ -451,7 +480,7 @@ namespace DhcpScanner
                     ipList,
                     new ParallelOptions
                     {
-                        MaxDegreeOfParallelism = 30,
+                        MaxDegreeOfParallelism = MaxParallelism,
                         CancellationToken = _cancellationTokenSource.Token
                     },
                     async (ipNum, token) =>

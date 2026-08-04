@@ -15,8 +15,12 @@ namespace DhcpScanner
 
         public MainForm()
         {
+            // 加载设置（语言、扫描线程数）
+            var settings = AppSettings.Load();
+            Lang.Current = settings.Language;
+
             InitializeComponent();
-            _scanner = new DhcpScanner();
+            _scanner = new DhcpScanner { MaxParallelism = settings.ScanThreads };
             _isScanning = false;
 
             // 绑定事件
@@ -25,8 +29,55 @@ namespace DhcpScanner
             _scanner.ScanCompleted += Scanner_ScanCompleted;
             _scanner.ScanError += Scanner_ScanError;
 
+            // 应用界面语言
+            ApplyLanguage();
+
             // 初始布局按钮位置
             PanelSearch_Resize(this, EventArgs.Empty);
+        }
+
+        /// <summary>
+        /// 根据当前语言刷新主窗口文本
+        /// </summary>
+        private void ApplyLanguage()
+        {
+            Text = Lang.Get("FormTitle");
+            labelTitle.Text = Lang.Get("ScanRangeTitle");
+            labelStartIp.Text = Lang.Get("StartIp");
+            labelTo.Text = Lang.Get("To");
+            labelEndIp.Text = Lang.Get("EndIp");
+            buttonScan.Text = Lang.Get("StartScan");
+            buttonStop.Text = Lang.Get("StopScan");
+            buttonClear.Text = Lang.Get("ClearResults");
+            buttonExport.Text = Lang.Get("ExportResults");
+            buttonSettings.Text = Lang.Get("Settings");
+            toolStripStatusLabel.Text = Lang.Get("Ready");
+            toolStripStatusCount.Text = Lang.Get("StatusCountInit");
+
+            // 刷新所有已打开的结果面板（表格列头 + IP分布图标题/图例）
+            foreach (TabPage tab in tabControlResults.TabPages)
+            {
+                if (tab.Tag is string subnet)
+                    tab.Text = string.Format(Lang.Get("SubnetTab"), subnet);
+                if (tab.Controls[0] is SubnetResultPanel panel)
+                    panel.RefreshLanguage();
+            }
+        }
+
+        /// <summary>
+        /// 设置按钮点击事件
+        /// </summary>
+        private void ButtonSettings_Click(object sender, EventArgs e)
+        {
+            using var settingsForm = new SettingsForm();
+            if (settingsForm.ShowDialog(this) == DialogResult.OK)
+            {
+                // 重新加载已保存的设置并应用
+                var settings = AppSettings.Load();
+                Lang.Current = settings.Language;
+                _scanner.MaxParallelism = settings.ScanThreads;
+                ApplyLanguage();
+            }
         }
 
         /// <summary>
@@ -80,7 +131,7 @@ namespace DhcpScanner
         {
             if (_isScanning)
             {
-                MessageBox.Show("扫描正在进行中，请等待完成或停止扫描。", "提示",
+                MessageBox.Show(Lang.Get("ScanningInProgress"), Lang.Get("Tip"),
                     MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
@@ -90,7 +141,15 @@ namespace DhcpScanner
 
             if (string.IsNullOrEmpty(startIp) || string.IsNullOrEmpty(endIp))
             {
-                MessageBox.Show("请输入起始IP和结束IP！", "错误",
+                MessageBox.Show(Lang.Get("InputIpRequired"), Lang.Get("Error"),
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            // 限制只能扫描内网地址
+            if (!DhcpScanner.IsPrivateIp(startIp) || !DhcpScanner.IsPrivateIp(endIp))
+            {
+                MessageBox.Show(Lang.Get("PrivateIpOnly"), Lang.Get("Error"),
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
@@ -104,9 +163,10 @@ namespace DhcpScanner
             buttonStop.Enabled = true;
             buttonClear.Enabled = false;
             buttonExport.Enabled = false;
+            buttonSettings.Enabled = false;
             progressBarScan.Value = 0;
-            toolStripStatusLabel.Text = $"正在扫描 {startIp} ~ {endIp}...";
-            toolStripStatusCount.Text = "发现 0 个设备";
+            toolStripStatusLabel.Text = string.Format(Lang.Get("ScanningRange"), startIp, endIp);
+            toolStripStatusCount.Text = Lang.Get("StatusCountScanning");
 
             try
             {
@@ -121,7 +181,7 @@ namespace DhcpScanner
                 }
                 else
                 {
-                    MessageBox.Show($"扫描出错: {ex.Message}", "错误",
+                    MessageBox.Show(string.Format(Lang.Get("ScanErrorStatus"), ex.Message), Lang.Get("Error"),
                         MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
             }
@@ -132,6 +192,7 @@ namespace DhcpScanner
                 buttonStop.Enabled = false;
                 buttonClear.Enabled = true;
                 buttonExport.Enabled = true;
+                buttonSettings.Enabled = true;
             }
         }
 
@@ -143,7 +204,7 @@ namespace DhcpScanner
             if (_isScanning)
             {
                 _scanner.StopScan();
-                toolStripStatusLabel.Text = "扫描已停止";
+                toolStripStatusLabel.Text = Lang.Get("ScanStopped");
             }
         }
 
@@ -154,8 +215,8 @@ namespace DhcpScanner
         {
             tabControlResults.TabPages.Clear();
             progressBarScan.Value = 0;
-            toolStripStatusCount.Text = "发现 0 个DHCP服务器";
-            toolStripStatusLabel.Text = "就绪";
+            toolStripStatusCount.Text = Lang.Get("StatusCountInit");
+            toolStripStatusLabel.Text = Lang.Get("Ready");
         }
 
         /// <summary>
@@ -165,15 +226,15 @@ namespace DhcpScanner
         {
             if (tabControlResults.TabPages.Count == 0)
             {
-                MessageBox.Show("没有可导出的数据！", "提示",
+                MessageBox.Show(Lang.Get("NoDataToExport"), Lang.Get("Tip"),
                     MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
 
             using var saveFileDialog = new SaveFileDialog
             {
-                Filter = "CSV文件 (*.csv)|*.csv|文本文件 (*.txt)|*.txt|所有文件 (*.*)|*.*",
-                FileName = $"DHCP扫描结果_{DateTime.Now:yyyyMMdd_HHmmss}",
+                Filter = Lang.Get("ExportFilter"),
+                FileName = $"{Lang.Get("ExportFileName")}_{DateTime.Now:yyyyMMdd_HHmmss}",
                 DefaultExt = "csv"
             };
 
@@ -182,12 +243,12 @@ namespace DhcpScanner
                 try
                 {
                     ExportToCsv(saveFileDialog.FileName);
-                    MessageBox.Show($"数据已成功导出到:\n{saveFileDialog.FileName}", "成功",
+                    MessageBox.Show(string.Format(Lang.Get("ExportSuccess"), saveFileDialog.FileName), Lang.Get("Success"),
                         MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show($"导出失败: {ex.Message}", "错误",
+                    MessageBox.Show(string.Format(Lang.Get("ExportFailed"), ex.Message), Lang.Get("Error"),
                         MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
             }
@@ -200,13 +261,13 @@ namespace DhcpScanner
         {
             using var writer = new StreamWriter(filePath, false, System.Text.Encoding.UTF8);
 
-            writer.WriteLine("网段,IP地址,MAC地址,主机名,延迟(ms),DHCP服务器,状态");
+            writer.WriteLine(Lang.Get("CsvHeader"));
 
             foreach (TabPage tab in tabControlResults.TabPages)
             {
                 if (tab.Controls[0] is SubnetResultPanel panel)
                 {
-                    string subnet = tab.Text.Replace("网段 ", "");
+                    string subnet = tab.Tag as string ?? tab.Text;
                     foreach (var row in panel.GetRows())
                     {
                         string ip = row.Cells["IpAddress"].Value?.ToString() ?? "";
@@ -253,7 +314,7 @@ namespace DhcpScanner
             }
 
             progressBarScan.Value = Math.Min(progress, 100);
-            toolStripStatusLabel.Text = $"正在扫描... {progress}%";
+            toolStripStatusLabel.Text = string.Format(Lang.Get("ScanProgressPercent"), progress);
         }
 
         /// <summary>
@@ -268,7 +329,7 @@ namespace DhcpScanner
             }
 
             progressBarScan.Value = 100;
-            toolStripStatusLabel.Text = "正在整理结果...";
+            toolStripStatusLabel.Text = Lang.Get("OrganizingResults");
 
             // 按网段分组
             var groups = results
@@ -292,10 +353,10 @@ namespace DhcpScanner
                 };
                 panel.PopulateData(subnetResults);
 
-                var onlineCount = subnetResults.Count(x => x.IsActive);
-                var routerCount = subnetResults.Count(x => x.IsDhcpServer);
-
-                var tab = new TabPage($"网段 {group.Key}");
+                var tab = new TabPage(string.Format(Lang.Get("SubnetTab"), group.Key))
+                {
+                    Tag = group.Key
+                };
                 tab.Controls.Add(panel);
                 tabControlResults.TabPages.Add(tab);
             }
@@ -305,11 +366,11 @@ namespace DhcpScanner
             int totalRouter = results.Count(x => x.IsDhcpServer);
             int totalNoDevice = results.Count - totalOnline;
 
-            toolStripStatusCount.Text = $"在线: {totalOnline}，无设备: {totalNoDevice}，DHCP服务器: {totalRouter}";
-            toolStripStatusLabel.Text = "扫描完成";
+            toolStripStatusCount.Text = string.Format(Lang.Get("StatusCountDone"), totalOnline, totalNoDevice, totalRouter);
+            toolStripStatusLabel.Text = Lang.Get("ScanCompletedStatus");
 
-            string message = $"扫描完成！\n\n共扫描 {results.Count} 个IP\n在线设备: {totalOnline}\n无设备: {totalNoDevice}\nDHCP服务器: {totalRouter}";
-            MessageBox.Show(message, "完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            string message = string.Format(Lang.Get("ScanSummary"), results.Count, totalOnline, totalNoDevice, totalRouter);
+            MessageBox.Show(message, Lang.Get("Completed"), MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         /// <summary>
@@ -323,8 +384,8 @@ namespace DhcpScanner
                 return;
             }
 
-            toolStripStatusLabel.Text = $"扫描出错: {errorMessage}";
-            MessageBox.Show($"扫描过程中发生错误:\n{errorMessage}", "错误",
+            toolStripStatusLabel.Text = string.Format(Lang.Get("ScanErrorStatus"), errorMessage);
+            MessageBox.Show(string.Format(Lang.Get("ScanErrorDialog"), errorMessage), Lang.Get("Error"),
                 MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
 
@@ -335,7 +396,7 @@ namespace DhcpScanner
         {
             if (_isScanning)
             {
-                var result = MessageBox.Show("扫描正在进行中，确定要退出吗？", "确认",
+                var result = MessageBox.Show(Lang.Get("ExitWhileScanning"), Lang.Get("Confirm"),
                     MessageBoxButtons.YesNo, MessageBoxIcon.Question);
 
                 if (result == DialogResult.No)
@@ -357,14 +418,20 @@ namespace DhcpScanner
         {
             if (flowButtons == null || panelSearch == null) return;
 
-            int ipControlsEndX = nEnd4.Location.X + nEnd4.Width + 20;
-            int flowTopY = nEnd4.Location.Y - 4;
+            // 按钮行放在 IP 输入框下方
+            int buttonsY = nEnd4.Location.Y + nEnd4.Height + 8;
 
-            int availableWidth = panelSearch.Width - ipControlsEndX - 20;
-            if (availableWidth < 220) availableWidth = 220;
+            // 设置按钮靠右
+            int paddingRight = panelSearch.Padding.Right;
+            buttonSettings.Location = new System.Drawing.Point(
+                panelSearch.Width - paddingRight - buttonSettings.Width,
+                buttonsY);
 
-            flowButtons.Location = new System.Drawing.Point(ipControlsEndX, flowTopY);
-            flowButtons.Size = new System.Drawing.Size(availableWidth, 100);
+            // 按钮面板宽度留出右侧设置按钮的空间
+            int settingsBtnWidth = buttonSettings.Width;
+            int flowWidth = panelSearch.Width - 20 - paddingRight - settingsBtnWidth - 10;
+            flowButtons.Location = new System.Drawing.Point(20, buttonsY);
+            flowButtons.Size = new System.Drawing.Size(flowWidth, 36);
         }
 
         /// <summary>
@@ -374,7 +441,7 @@ namespace DhcpScanner
         {
             using var form = new Form
             {
-                Text = "提示",
+                Text = Lang.Get("Tip"),
                 Size = new System.Drawing.Size(360, 180),
                 FormBorderStyle = FormBorderStyle.FixedDialog,
                 StartPosition = FormStartPosition.CenterParent,
@@ -385,7 +452,7 @@ namespace DhcpScanner
 
             var labelMain = new Label
             {
-                Text = $"最多测100个网段",
+                Text = Lang.Get("MaxSubnets"),
                 Font = new System.Drawing.Font("Microsoft YaHei", 12F, System.Drawing.FontStyle.Bold),
                 ForeColor = System.Drawing.Color.FromArgb(50, 50, 50),
                 AutoSize = false,
@@ -396,7 +463,7 @@ namespace DhcpScanner
 
             var labelSub = new Label
             {
-                Text = $"当前有 {count} 个网段\n什么鬼，谁家网段那么多",
+                Text = string.Format(Lang.Get("TooManySubnetsSub"), count),
                 Font = new System.Drawing.Font("Microsoft YaHei", 9F),
                 ForeColor = System.Drawing.Color.FromArgb(160, 160, 160),
                 AutoSize = false,
@@ -407,17 +474,14 @@ namespace DhcpScanner
 
             var btnOk = new Button
             {
-                Text = "确定",
+                Text = Lang.Get("Ok"),
                 DialogResult = DialogResult.OK,
-                FlatStyle = FlatStyle.Flat,
+                FlatStyle = FlatStyle.System,
                 Size = new System.Drawing.Size(80, 30),
                 Location = new System.Drawing.Point(135, 105),
-                BackColor = System.Drawing.Color.FromArgb(0, 120, 215),
-                ForeColor = System.Drawing.Color.White,
                 Font = new System.Drawing.Font("Microsoft YaHei", 9F),
                 Cursor = System.Windows.Forms.Cursors.Hand,
             };
-            btnOk.FlatAppearance.BorderSize = 0;
 
             form.Controls.AddRange(new Control[] { labelMain, labelSub, btnOk });
             form.AcceptButton = btnOk;

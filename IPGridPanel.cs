@@ -128,7 +128,7 @@ namespace DhcpScanner
 
             // 标题
             using var titleFont = new Font("Microsoft YaHei", 9F, FontStyle.Bold);
-            string title = "IP 地址分布图";
+            string title = Lang.Get("IpDistribution");
             var titleSize = g.MeasureString(title, titleFont);
             g.DrawString(title, titleFont, Brushes.DimGray,
                 (Width - titleSize.Width) / 2, scrollY + 2);
@@ -181,10 +181,10 @@ namespace DhcpScanner
 
             var legendItems = new (Color color, string text)[]
             {
-                (Color.FromArgb(240, 240, 240), "未扫描"),
-                (Color.FromArgb(76, 175, 80), "无设备"),
-                (Color.FromArgb(33, 150, 243), "在线"),
-                (Color.FromArgb(255, 138, 128), "DHCP服务器"),
+                (Color.FromArgb(240, 240, 240), Lang.Get("NotScanned")),
+                (Color.FromArgb(76, 175, 80), Lang.Get("NoDevice")),
+                (Color.FromArgb(33, 150, 243), Lang.Get("Online")),
+                (Color.FromArgb(255, 138, 128), Lang.Get("ColDhcp")),
             };
 
             using var legendFont = new Font("Microsoft YaHei", 6.5F);

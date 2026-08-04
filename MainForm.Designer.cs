@@ -70,6 +70,7 @@ namespace DhcpScanner
             this.buttonStop = new System.Windows.Forms.Button();
             this.buttonClear = new System.Windows.Forms.Button();
             this.buttonExport = new System.Windows.Forms.Button();
+            this.buttonSettings = new System.Windows.Forms.Button();
 
             // 进度条
             this.progressBarScan = new System.Windows.Forms.ProgressBar();
@@ -86,7 +87,7 @@ namespace DhcpScanner
             // panelSearch
             //
             this.panelSearch.Dock = System.Windows.Forms.DockStyle.Top;
-            this.panelSearch.Height = 110;
+            this.panelSearch.Height = 135;
             this.panelSearch.Padding = new System.Windows.Forms.Padding(20, 15, 20, 10);
             this.panelSearch.BackColor = System.Drawing.Color.FromArgb(240, 244, 247);
             this.panelSearch.Resize += new System.EventHandler(this.PanelSearch_Resize);
@@ -157,55 +158,57 @@ namespace DhcpScanner
             //
             // buttonScan
             //
-            this.buttonScan.Size = new System.Drawing.Size(100, 35);
+            this.buttonScan.Size = new System.Drawing.Size(100, 30);
             this.buttonScan.Text = "开始扫描";
-            this.buttonScan.BackColor = System.Drawing.Color.FromArgb(0, 120, 215);
-            this.buttonScan.ForeColor = System.Drawing.Color.White;
-            this.buttonScan.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.buttonScan.Font = new System.Drawing.Font("Microsoft YaHei", 9.5F, System.Drawing.FontStyle.Bold);
+            this.buttonScan.FlatStyle = System.Windows.Forms.FlatStyle.System;
+            this.buttonScan.Font = new System.Drawing.Font("Microsoft YaHei", 9F);
             this.buttonScan.Cursor = System.Windows.Forms.Cursors.Hand;
-            this.buttonScan.Margin = new System.Windows.Forms.Padding(3, 8, 3, 3);
+            this.buttonScan.Margin = new System.Windows.Forms.Padding(3, 0, 3, 0);
             this.buttonScan.Click += new System.EventHandler(this.ButtonScan_Click);
 
             //
             // buttonStop
             //
-            this.buttonStop.Size = new System.Drawing.Size(100, 35);
+            this.buttonStop.Size = new System.Drawing.Size(100, 30);
             this.buttonStop.Text = "停止扫描";
-            this.buttonStop.BackColor = System.Drawing.Color.FromArgb(200, 50, 50);
-            this.buttonStop.ForeColor = System.Drawing.Color.White;
-            this.buttonStop.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.buttonStop.Font = new System.Drawing.Font("Microsoft YaHei", 9.5F, System.Drawing.FontStyle.Bold);
+            this.buttonStop.FlatStyle = System.Windows.Forms.FlatStyle.System;
+            this.buttonStop.Font = new System.Drawing.Font("Microsoft YaHei", 9F);
             this.buttonStop.Cursor = System.Windows.Forms.Cursors.Hand;
             this.buttonStop.Enabled = false;
-            this.buttonStop.Margin = new System.Windows.Forms.Padding(3, 8, 3, 3);
+            this.buttonStop.Margin = new System.Windows.Forms.Padding(3, 0, 3, 0);
             this.buttonStop.Click += new System.EventHandler(this.ButtonStop_Click);
 
             //
             // buttonClear
             //
-            this.buttonClear.Size = new System.Drawing.Size(100, 35);
+            this.buttonClear.Size = new System.Drawing.Size(100, 30);
             this.buttonClear.Text = "清空结果";
-            this.buttonClear.BackColor = System.Drawing.Color.FromArgb(100, 100, 100);
-            this.buttonClear.ForeColor = System.Drawing.Color.White;
-            this.buttonClear.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.buttonClear.Font = new System.Drawing.Font("Microsoft YaHei", 9.5F, System.Drawing.FontStyle.Bold);
+            this.buttonClear.FlatStyle = System.Windows.Forms.FlatStyle.System;
+            this.buttonClear.Font = new System.Drawing.Font("Microsoft YaHei", 9F);
             this.buttonClear.Cursor = System.Windows.Forms.Cursors.Hand;
-            this.buttonClear.Margin = new System.Windows.Forms.Padding(3, 8, 3, 3);
+            this.buttonClear.Margin = new System.Windows.Forms.Padding(3, 0, 3, 0);
             this.buttonClear.Click += new System.EventHandler(this.ButtonClear_Click);
 
             //
             // buttonExport
             //
-            this.buttonExport.Size = new System.Drawing.Size(100, 35);
+            this.buttonExport.Size = new System.Drawing.Size(100, 30);
             this.buttonExport.Text = "导出结果";
-            this.buttonExport.BackColor = System.Drawing.Color.FromArgb(0, 150, 100);
-            this.buttonExport.ForeColor = System.Drawing.Color.White;
-            this.buttonExport.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.buttonExport.Font = new System.Drawing.Font("Microsoft YaHei", 9.5F, System.Drawing.FontStyle.Bold);
+            this.buttonExport.FlatStyle = System.Windows.Forms.FlatStyle.System;
+            this.buttonExport.Font = new System.Drawing.Font("Microsoft YaHei", 9F);
             this.buttonExport.Cursor = System.Windows.Forms.Cursors.Hand;
-            this.buttonExport.Margin = new System.Windows.Forms.Padding(3, 8, 3, 3);
+            this.buttonExport.Margin = new System.Windows.Forms.Padding(3, 0, 3, 0);
             this.buttonExport.Click += new System.EventHandler(this.ButtonExport_Click);
+
+            //
+            // buttonSettings
+            //
+            this.buttonSettings.Size = new System.Drawing.Size(100, 30);
+            this.buttonSettings.Text = "设置";
+            this.buttonSettings.FlatStyle = System.Windows.Forms.FlatStyle.System;
+            this.buttonSettings.Font = new System.Drawing.Font("Microsoft YaHei", 9F);
+            this.buttonSettings.Cursor = System.Windows.Forms.Cursors.Hand;
+            this.buttonSettings.Click += new System.EventHandler(this.ButtonSettings_Click);
 
             //
             // panelProgress
@@ -279,6 +282,7 @@ namespace DhcpScanner
             this.panelSearch.Controls.Add(this.dotE3);
             this.panelSearch.Controls.Add(this.nEnd4);
             this.panelSearch.Controls.Add(this.flowButtons);
+            this.panelSearch.Controls.Add(this.buttonSettings);
 
             this.flowButtons.Controls.Add(this.buttonScan);
             this.flowButtons.Controls.Add(this.buttonStop);
@@ -306,6 +310,14 @@ namespace DhcpScanner
             n.Font = new System.Drawing.Font("Microsoft YaHei", 9F);
             n.TextAlign = System.Windows.Forms.HorizontalAlignment.Center;
             n.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
+            // 限制只能输入纯数字，最多3位
+            n.KeyPress += (_, e) =>
+            {
+                if (!char.IsControl(e.KeyChar) && !char.IsDigit(e.KeyChar))
+                    e.Handled = true;
+                else if (char.IsDigit(e.KeyChar) && n.Text.Length >= 3)
+                    e.Handled = true;
+            };
         }
 
         private void SetupDot(System.Windows.Forms.Label l, int x, int y)
@@ -347,6 +359,7 @@ namespace DhcpScanner
         private System.Windows.Forms.Button buttonStop;
         private System.Windows.Forms.Button buttonClear;
         private System.Windows.Forms.Button buttonExport;
+        private System.Windows.Forms.Button buttonSettings;
 
         private System.Windows.Forms.ProgressBar progressBarScan;
 

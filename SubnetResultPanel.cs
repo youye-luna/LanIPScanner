@@ -40,12 +40,12 @@ namespace DhcpScanner
             _grid.AlternatingRowsDefaultCellStyle.BackColor = Color.FromArgb(245, 248, 250);
 
             // 不显示"网段"列（每个标签页已经按网段分组了）
-            _grid.Columns.Add("IpAddress", "IP地址");
-            _grid.Columns.Add("MacAddress", "MAC地址");
-            _grid.Columns.Add("HostName", "主机名");
-            _grid.Columns.Add("PingMs", "延迟(ms)");
-            _grid.Columns.Add("IsRouter", "DHCP服务器");
-            _grid.Columns.Add("Status", "状态");
+            _grid.Columns.Add("IpAddress", Lang.Get("ColIp"));
+            _grid.Columns.Add("MacAddress", Lang.Get("ColMac"));
+            _grid.Columns.Add("HostName", Lang.Get("ColHost"));
+            _grid.Columns.Add("PingMs", Lang.Get("ColPing"));
+            _grid.Columns.Add("IsRouter", Lang.Get("ColDhcp"));
+            _grid.Columns.Add("Status", Lang.Get("ColStatus"));
 
             _grid.Columns["IpAddress"].Width = 140;
             _grid.Columns["MacAddress"].Width = 160;
@@ -83,7 +83,7 @@ namespace DhcpScanner
 
             foreach (var info in results)
             {
-                string statusText = info.IsActive ? "在线" : "无设备";
+                string statusText = info.IsActive ? Lang.Get("Online") : Lang.Get("NoDevice");
                 string pingText = info.IsActive ? info.PingMs.ToString() : "-";
 
                 int rowIndex = _grid.Rows.Add(
@@ -91,11 +91,12 @@ namespace DhcpScanner
                     info.IsActive ? info.MacAddress : "-",
                     info.IsActive ? info.HostName : "-",
                     pingText,
-                    info.IsDhcpServer ? "是" : "否",
+                    info.IsDhcpServer ? Lang.Get("Yes") : Lang.Get("No"),
                     statusText
                 );
 
                 var row = _grid.Rows[rowIndex];
+                row.Tag = info;
 
                 if (info.IsDhcpServer)
                 {
@@ -141,6 +142,29 @@ namespace DhcpScanner
         public IReadOnlyList<DataGridViewRow> GetRows()
         {
             return _grid.Rows.Cast<DataGridViewRow>().ToList().AsReadOnly();
+        }
+
+        /// <summary>
+        /// 切换语言后刷新列头和单元格文本
+        /// </summary>
+        public void RefreshLanguage()
+        {
+            _grid.Columns["IpAddress"].HeaderText = Lang.Get("ColIp");
+            _grid.Columns["MacAddress"].HeaderText = Lang.Get("ColMac");
+            _grid.Columns["HostName"].HeaderText = Lang.Get("ColHost");
+            _grid.Columns["PingMs"].HeaderText = Lang.Get("ColPing");
+            _grid.Columns["IsRouter"].HeaderText = Lang.Get("ColDhcp");
+            _grid.Columns["Status"].HeaderText = Lang.Get("ColStatus");
+
+            // 刷新单元格中的状态文本（DHCP 是/否、在线/无设备）
+            foreach (DataGridViewRow row in _grid.Rows)
+            {
+                if (row.Tag is not DhcpServerInfo info) continue;
+                row.Cells["IsRouter"].Value = info.IsDhcpServer ? Lang.Get("Yes") : Lang.Get("No");
+                row.Cells["Status"].Value = info.IsActive ? Lang.Get("Online") : Lang.Get("NoDevice");
+            }
+
+            _ipGrid.Invalidate();
         }
 
         /// <summary>
@@ -203,15 +227,15 @@ namespace DhcpScanner
             string host = row.Cells["HostName"].Value?.ToString() ?? "";
             string ping = row.Cells["PingMs"].Value?.ToString() ?? "";
             string dhcp = row.Cells["IsRouter"].Value?.ToString() ?? "";
-            string status = row.Cells["Status"].Value?.ToString() ?? "";
-            bool isActive = status == "在线";
-            bool isDhcp = dhcp == "是";
+            var info = row.Tag as DhcpServerInfo;
+            bool isActive = info?.IsActive ?? false;
+            bool isDhcp = info?.IsDhcpServer ?? false;
 
             var statusColor = isDhcp ? Color.FromArgb(255, 138, 128) : isActive ? Color.FromArgb(33, 150, 243) : Color.FromArgb(158, 158, 158);
 
             var form = new Form
             {
-                Text = $"设备详情 - {ip}",
+                Text = string.Format(Lang.Get("DeviceDetail"), ip),
                 Size = new Size(420, 400),
                 FormBorderStyle = FormBorderStyle.FixedDialog,
                 StartPosition = FormStartPosition.CenterParent,
@@ -243,7 +267,7 @@ namespace DhcpScanner
             // 状态标签
             var lblStatusTag = new Label
             {
-                Text = isDhcp ? "DHCP服务器" : isActive ? "在线" : "无设备",
+                Text = isDhcp ? Lang.Get("ColDhcp") : isActive ? Lang.Get("Online") : Lang.Get("NoDevice"),
                 Font = new Font("Microsoft YaHei", 9F, FontStyle.Bold),
                 ForeColor = Color.White,
                 BackColor = statusColor,
@@ -261,11 +285,11 @@ namespace DhcpScanner
 
             var fields = new (string label, string value, Color color)[]
             {
-                ("IP 地 址", ip, Color.FromArgb(40, 40, 40)),
-                ("MAC 地址", mac, Color.FromArgb(40, 40, 40)),
-                ("主 机 名", host, Color.FromArgb(40, 40, 40)),
-                ("延迟", ping == "-" ? "-" : ping + " ms", isActive ? Color.FromArgb(76, 175, 80) : Color.Gray),
-                ("DHCP服务器", dhcp, isDhcp ? Color.Red : Color.FromArgb(40, 40, 40)),
+                (Lang.Get("FieldIp"), ip, Color.FromArgb(40, 40, 40)),
+                (Lang.Get("FieldMac"), mac, Color.FromArgb(40, 40, 40)),
+                (Lang.Get("FieldHost"), host, Color.FromArgb(40, 40, 40)),
+                (Lang.Get("FieldPing"), ping == "-" ? "-" : ping + " ms", isActive ? Color.FromArgb(76, 175, 80) : Color.Gray),
+                (Lang.Get("ColDhcp"), dhcp, isDhcp ? Color.Red : Color.FromArgb(40, 40, 40)),
             };
 
             foreach (var (label, value, color) in fields)
@@ -293,14 +317,11 @@ namespace DhcpScanner
             var btnPing = new Button
             {
                 Text = "Ping",
-                FlatStyle = FlatStyle.Flat,
+                FlatStyle = FlatStyle.System,
                 Size = new Size(120, 35),
-                BackColor = Color.FromArgb(76, 175, 80),
-                ForeColor = Color.White,
                 Font = new Font("Microsoft YaHei", 9F, FontStyle.Bold),
                 Cursor = Cursors.Hand,
             };
-            btnPing.FlatAppearance.BorderSize = 0;
             btnPing.Click += (_, _) =>
             {
                 try
@@ -318,16 +339,13 @@ namespace DhcpScanner
             // 访问后台按钮（仅DHCP服务器显示）
             var btnWeb = new Button
             {
-                Text = "访问后台",
-                FlatStyle = FlatStyle.Flat,
+                Text = Lang.Get("AccessAdmin"),
+                FlatStyle = FlatStyle.System,
                 Size = new Size(120, 35),
-                BackColor = Color.FromArgb(0, 120, 215),
-                ForeColor = Color.White,
                 Font = new Font("Microsoft YaHei", 9F, FontStyle.Bold),
                 Cursor = Cursors.Hand,
                 Visible = isDhcp,
             };
-            btnWeb.FlatAppearance.BorderSize = 0;
             btnWeb.Click += (_, _) =>
             {
                 try
@@ -347,16 +365,13 @@ namespace DhcpScanner
             // IE访问后台按钮（仅DHCP服务器显示）
             var btnIe = new Button
             {
-                Text = "IE访问",
-                FlatStyle = FlatStyle.Flat,
+                Text = Lang.Get("IeAccess"),
+                FlatStyle = FlatStyle.System,
                 Size = new Size(120, 35),
-                BackColor = Color.FromArgb(0, 102, 204),
-                ForeColor = Color.White,
                 Font = new Font("Microsoft YaHei", 9F, FontStyle.Bold),
                 Cursor = Cursors.Hand,
                 Visible = isDhcp,
             };
-            btnIe.FlatAppearance.BorderSize = 0;
             btnIe.Click += (_, _) =>
             {
                 try
@@ -365,8 +380,8 @@ namespace DhcpScanner
                     var ieType = Type.GetTypeFromProgID("InternetExplorer.Application");
                     if (ieType == null)
                     {
-                        MessageBox.Show("IE COM 组件未注册，请确认已启用 Internet Explorer 11 功能。",
-                            "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        MessageBox.Show(Lang.Get("IeNotRegistered"),
+                            Lang.Get("Tip"), MessageBoxButtons.OK, MessageBoxIcon.Information);
                         return;
                     }
                     dynamic ie = Activator.CreateInstance(ieType)!;
@@ -384,23 +399,20 @@ namespace DhcpScanner
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show($"无法启动 IE 浏览器：{ex.Message}\n请确认已启用 Internet Explorer 11 功能。",
-                        "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    MessageBox.Show(string.Format(Lang.Get("IeLaunchFailed"), ex.Message),
+                        Lang.Get("Tip"), MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
             };
 
             // 按钮排列（两行）
             var btnClose = new Button
             {
-                Text = "关闭",
-                FlatStyle = FlatStyle.Flat,
+                Text = Lang.Get("Close"),
+                FlatStyle = FlatStyle.System,
                 Size = new Size(120, 35),
-                BackColor = Color.FromArgb(100, 100, 100),
-                ForeColor = Color.White,
                 Font = new Font("Microsoft YaHei", 9F, FontStyle.Bold),
                 Cursor = Cursors.Hand,
             };
-            btnClose.FlatAppearance.BorderSize = 0;
             btnClose.Click += (_, _) => form.Close();
 
             int btnW = 120, btnH = 35, gap = 15;
