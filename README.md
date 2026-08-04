@@ -7,10 +7,13 @@
 - IP占用扫描
 - DHCP服务器扫描<br>
 （后面再加）
-## 软件截图（2026-08-01拍摄）
-<img width="1919" height="1079" alt="图片" src="https://github.com/user-attachments/assets/b0f7a11f-511e-4399-af72-3e211dd6f4fc" />
-<img width="1919" height="1079" alt="图片" src="https://github.com/user-attachments/assets/bd7ddedd-c83d-49dd-b5eb-f4fdd148a730" />
-<img width="1919" height="1079" alt="图片" src="https://github.com/user-attachments/assets/f38e7303-f6a3-4849-9320-dbb5d9cb6782" />
+## 软件截图（2026-08-04拍摄）
+<img width="1202" height="832" alt="图片" src="https://github.com/user-attachments/assets/dc33ee63-5ec7-4235-b51d-8de6ba82e605" />
+<img width="1202" height="832" alt="图片" src="https://github.com/user-attachments/assets/4f3cfd90-c9be-4e92-a88e-806945115069" />
+<img width="1501" height="866" alt="图片" src="https://github.com/user-attachments/assets/b2dc53d1-6c59-460c-8492-ccc516f8e9c7" />
+<img width="1202" height="832" alt="图片" src="https://github.com/user-attachments/assets/ec055fa4-7229-4edb-9c50-c5a58c91d162" />
+
+
 
 ## 结尾
 
