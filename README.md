@@ -1,4 +1,4 @@
-# LanIPScanner
+# LanIPScanner for Windows
 一个普通的多线程局域网IP扫描工具
 ## 软件由来
 作者闲着没事干用AI做出来的东西<br>
