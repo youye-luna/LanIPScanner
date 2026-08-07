@@ -19,3 +19,7 @@ Desktop.ini
 ## App runtime
 settings.json
 ScanHistory/
+
+## Debug logs
+.dbg/
+debug-*.md
