@@ -5,7 +5,8 @@
 
 #define MyAppName      "局域网设备扫描工具"
 #define MyAppNameEn    "LanIPScanner"
-#define MyAppVersion   "1.4.0"
+#define MyAppVersion   "1.4-beta2"
+#define MyAppFileVersion "1.4.0.2"
 #define MyAppPublisher "LanIPScanner"
 #define MyAppExeName   "LanIPScanner.exe"
 
@@ -28,7 +29,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 SetupIconFile=app.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
-VersionInfoVersion={#MyAppVersion}.0
+VersionInfoVersion={#MyAppFileVersion}
 VersionInfoDescription={#MyAppName}
 
 [Languages]

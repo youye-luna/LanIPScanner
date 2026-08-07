@@ -100,8 +100,10 @@ namespace DhcpScanner
             this.labelStartIp.ForeColor = System.Drawing.Color.FromArgb(60, 60, 60);
 
             // 起始IP输入框（原生IP地址控件）
-            this.ipStart.Location = new System.Drawing.Point(80, 35);
-            this.ipStart.Size = new System.Drawing.Size(248, 25);
+            this.ipStart.Location = new System.Drawing.Point(80, 34);
+            this.ipStart.Size = new System.Drawing.Size(248, 28);
+            this.ipStart.Font = new System.Drawing.Font("Microsoft YaHei UI", 9.5F);
+            this.ipStart.Cursor = System.Windows.Forms.Cursors.IBeam;
             this.ipStart.SetAddress(string.Join(".", defaultStart));
 
             //
@@ -123,8 +125,10 @@ namespace DhcpScanner
             this.labelEndIp.ForeColor = System.Drawing.Color.FromArgb(60, 60, 60);
 
             // 结束IP输入框（原生IP地址控件）
-            this.ipEnd.Location = new System.Drawing.Point(425, 35);
-            this.ipEnd.Size = new System.Drawing.Size(248, 25);
+            this.ipEnd.Location = new System.Drawing.Point(425, 34);
+            this.ipEnd.Size = new System.Drawing.Size(248, 28);
+            this.ipEnd.Font = new System.Drawing.Font("Microsoft YaHei UI", 9.5F);
+            this.ipEnd.Cursor = System.Windows.Forms.Cursors.IBeam;
             this.ipEnd.SetAddress(string.Join(".", defaultEnd));
 
             //

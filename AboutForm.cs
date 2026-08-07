@@ -84,7 +84,7 @@ namespace DhcpScanner
             // 版本号
             using var verFont = new Font("Microsoft YaHei", 9.5F);
             using var verBrush = new SolidBrush(Color.FromArgb(150, 150, 150));
-            string verText = string.Format(Lang.Get("AboutVersion"), "1.4-beta");
+            string verText = string.Format(Lang.Get("AboutVersion"), "1.4-beta2");
             g.DrawString(verText, verFont, verBrush, textX, logoY + 90);
 
             // 版权（底部居中）

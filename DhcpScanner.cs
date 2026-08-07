@@ -1,10 +1,18 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Text.RegularExpressions;
+#region debug-point debug-reporter:原生异步HTTP日志上报依赖
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
+#endregion
 
 namespace DhcpScanner
 {
@@ -39,9 +47,36 @@ namespace DhcpScanner
     public class DhcpScanner
     {
         private readonly List<DhcpServerInfo> _discoveredServers;
+        private readonly ConcurrentDictionary<string, Lazy<Task<string>>> _macCache = new();
         private readonly object _lock = new();
         private CancellationTokenSource _cancellationTokenSource;
         private bool _isScanning;
+
+        #region debug-point debug-reporter:吞掉失败的异步HTTP日志上报
+        private static readonly HttpClient DebugHttpClient = new();
+
+        private static async Task ReportDebugAsync(string hypothesisId, string location, string message, object data)
+        {
+            try
+            {
+                var payload = JsonSerializer.Serialize(new
+                {
+                    sessionId = "three-routers-missing",
+                    runId = "post-fix",
+                    hypothesisId,
+                    location,
+                    msg = "[DEBUG] " + message,
+                    data,
+                    ts = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                });
+                using var content = new StringContent(payload, Encoding.UTF8, "application/json");
+                using var response = await DebugHttpClient.PostAsync("http://127.0.0.1:7777/event", content).ConfigureAwait(false);
+            }
+            catch
+            {
+            }
+        }
+        #endregion
 
         public event EventHandler<DhcpServerInfo>? ServerFound;
         public event EventHandler<int>? ScanProgress;
@@ -74,6 +109,7 @@ namespace DhcpScanner
             _isScanning = true;
             _cancellationTokenSource = new CancellationTokenSource();
             _discoveredServers.Clear();
+            _macCache.Clear();
 
             try
             {
@@ -106,7 +142,8 @@ namespace DhcpScanner
                         ScanProgress?.Invoke(this, progress);
                     });
 
-                // 按IP最后一段排序（升序）
+                await ApplyArpResultsAsync(allResults, _cancellationTokenSource.Token);
+
                 allResults.Sort((a, b) =>
                 {
                     string aLast = a.IpAddress.ToString().Split('.').Last();
@@ -117,6 +154,11 @@ namespace DhcpScanner
                 });
 
                 // 一次性通知所有结果
+                lock (_lock)
+                {
+                    _discoveredServers.Clear();
+                    _discoveredServers.AddRange(allResults);
+                }
                 foreach (var r in allResults)
                 {
                     ServerFound?.Invoke(this, r);
@@ -144,30 +186,91 @@ namespace DhcpScanner
         private async Task<DhcpServerInfo> ScanSingleIpAsync(string ip, CancellationToken cancellationToken)
         {
             var serverInfo = new DhcpServerInfo { IpAddress = IPAddress.Parse(ip) };
+            var activePorts = new HashSet<int>();
 
             try
             {
-                using var ping = new Ping();
-                var reply = await ping.SendPingAsync(ip, 500);
+                PingReply? reply = null;
+                // 保持与旧版相同的一次 500ms ICMP 探测；同网段漏报由扫描结束时的
+                // ARP 邻居表补齐，避免对每个空地址重复等待。
+                for (int attempt = 0; attempt < 1; attempt++)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    reply = await SendPingAsync(ip, 500, cancellationToken);
+                    if (reply?.Status == IPStatus.Success)
+                        break;
+                }
 
                 serverInfo.ResponseTime = DateTime.Now;
-                serverInfo.IsActive = reply.Status == IPStatus.Success;
-                serverInfo.PingMs = reply.Status == IPStatus.Success ? reply.RoundtripTime : -1;
+                serverInfo.IsActive = reply?.Status == IPStatus.Success;
+                serverInfo.PingMs = reply?.Status == IPStatus.Success ? reply.RoundtripTime : -1;
 
-                if (reply.Status == IPStatus.Success)
+                // ICMP 可能被防火墙阻断；仅对 Ping 失败的地址做有限 TCP 存活探测。
+                if (!serverInfo.IsActive)
                 {
-                    // 并行获取MAC地址和主机名
+                    // 只探测最常见的服务端口。端口拒绝同样能证明主机在线，其他设备
+                    // 则由 ARP 补偿，避免 9 个端口 × 300ms 将扫描时间放大数倍。
+                    int[] probePorts = { 80, 443, 445, 22, 8080 };
+                    using var probeCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                    using var probeSemaphore = new SemaphoreSlim(4);
+                    var probeTasks = probePorts.Select(port => ProbePortAsync(ip, port, 120, probeSemaphore, probeCts.Token)).ToArray();
+                    try
+                    {
+                        while (probeTasks.Length > 0)
+                        {
+                            cancellationToken.ThrowIfCancellationRequested();
+                            var completed = await Task.WhenAny(probeTasks);
+                            var probeResult = await completed;
+                            if (probeResult.HasValue)
+                            {
+                                // 正数表示端口已连接；负数表示收到 TCP RST（端口关闭但主机明确在线）。
+                                if (probeResult.Value > 0)
+                                    activePorts.Add(probeResult.Value);
+                                serverInfo.IsActive = true;
+                                probeCts.Cancel();
+                                break;
+                            }
+                            probeTasks = probeTasks.Where(task => !task.IsCompleted).ToArray();
+                        }
+                    }
+                    finally
+                    {
+                        probeCts.Cancel();
+                        try { await Task.WhenAll(probeTasks); } catch (OperationCanceledException) { }
+                    }
+                }
+
+                #region debug-point probe-state:记录Ping和TCP存活探测结果
+                _ = ReportDebugAsync("probe-state", "DhcpScanner.ScanSingleIpAsync:after-liveness-probe", "存活探测完成", new
+                {
+                    ip,
+                    pingSuccess = reply?.Status == IPStatus.Success,
+                    isActive = serverInfo.IsActive,
+                    activePorts = activePorts.ToArray()
+                });
+                #endregion
+
+                if (serverInfo.IsActive)
+                {
                     var macTask = GetMacAddressAsync(ip);
-                    var hostTask = GetHostNameAsync(ip);
-
-                    await Task.WhenAll(macTask, hostTask);
-
+                    var hostTask = GetHostNameAsync(ip, cancellationToken);
+                    await Task.WhenAll(macTask, hostTask).ConfigureAwait(false);
                     serverInfo.MacAddress = await macTask;
                     serverInfo.HostName = await hostTask;
-
-                    // 检测是否可能是路由器/网关
-                    serverInfo.IsDhcpServer = await IsLikelyRouterOrDhcp(ip);
+                    #region debug-point identity-state:记录MAC和主机名
+                    _ = ReportDebugAsync("identity-state", "DhcpScanner.ScanSingleIpAsync:after-identity", "身份信息获取完成", new
+                    {
+                        ip,
+                        hostname = serverInfo.HostName,
+                        mac = serverInfo.MacAddress
+                    });
+                    #endregion
+                    serverInfo.IsDhcpServer = await IsLikelyRouterOrDhcp(ip, serverInfo.HostName, activePorts, cancellationToken);
                 }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
             }
             catch
             {
@@ -178,33 +281,151 @@ namespace DhcpScanner
         }
 
         /// <summary>
-        /// 判断是否可能是路由器或DHCP服务器
+        /// 使用本次扫描产生的 ARP 邻居表补充在线设备。ICMP 可能被设备防火墙拦截，
+        /// 但同网段通信仍会完成 ARP，因此这是比 TCP 端口猜测更可靠的补充信号。
         /// </summary>
-        private async Task<bool> IsLikelyRouterOrDhcp(string ip)
+        private async Task ApplyArpResultsAsync(List<DhcpServerInfo> results, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var arpTable = ReadArpTable();
+            if (arpTable.Count == 0)
+                return;
+
+            var arpDevices = results
+                .Where(result => !result.IsActive && arpTable.ContainsKey(result.IpAddress.ToString()))
+                .ToArray();
+            await Parallel.ForEachAsync(
+                arpDevices,
+                new ParallelOptions
+                {
+                    MaxDegreeOfParallelism = Math.Clamp(MaxParallelism / 4, 2, 8),
+                    CancellationToken = cancellationToken
+                },
+                async (result, token) =>
+                {
+                    string ip = result.IpAddress.ToString();
+                    result.IsActive = true;
+                    result.ResponseTime = DateTime.Now;
+                    result.MacAddress = arpTable[ip];
+                    result.HostName = await GetHostNameAsync(ip, token).ConfigureAwait(false);
+                    result.IsDhcpServer = await IsLikelyRouterOrDhcp(ip, result.HostName, new HashSet<int>(), token).ConfigureAwait(false);
+                });
+        }
+
+        private static Dictionary<string, string> ReadArpTable()
+        {
+            var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                using var process = new Process
+                {
+                    StartInfo = new ProcessStartInfo
+                    {
+                        FileName = "arp",
+                        Arguments = "-a",
+                        UseShellExecute = false,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        CreateNoWindow = true,
+                        StandardOutputEncoding = System.Text.Encoding.Default
+                    }
+                };
+                process.Start();
+                string output = process.StandardOutput.ReadToEnd();
+                if (!process.WaitForExit(1500))
+                {
+                    try { process.Kill(); } catch { }
+                    return result;
+                }
+
+                foreach (var line in output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    var fields = line.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                    if (fields.Length < 2 || !IPAddress.TryParse(fields[0], out var address) || address.AddressFamily != AddressFamily.InterNetwork)
+                        continue;
+                    if (fields.Length >= 3 && fields[2].Equals("static", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    string mac = fields[1].Replace(':', '-').ToUpperInvariant();
+                    if (Regex.IsMatch(mac, "^[0-9A-F]{2}(-[0-9A-F]{2}){5}$") && !mac.Equals("FF-FF-FF-FF-FF-FF", StringComparison.OrdinalIgnoreCase))
+                        result[address.ToString()] = mac;
+                }
+            }
+            catch { }
+            return result;
+        }
+
+        private static async Task<PingReply?> SendPingAsync(string ip, int timeoutMs, CancellationToken cancellationToken)
+        {
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(timeoutMs);
+            using var ping = new Ping();
+            try
+            {
+                var pingTask = ping.SendPingAsync(IPAddress.Parse(ip), timeoutMs, Array.Empty<byte>(), new PingOptions());
+                var completed = await Task.WhenAny(pingTask, Task.Delay(timeoutMs, cancellationToken));
+                if (completed != pingTask)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    return null;
+                }
+                return await pingTask;
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                return null;
+            }
+        }
+
+        private async Task<bool> IsLikelyRouterOrDhcp(string ip, string hostName, HashSet<int> activePorts, CancellationToken cancellationToken)
         {
             try
             {
-                // 方法1：检查常见路由器端口 (80, 443, 8080)
-                if (await CheckPortAsync(ip, 80, 300) || 
-                    await CheckPortAsync(ip, 443, 300) ||
-                    await CheckPortAsync(ip, 8080, 300))
+                cancellationToken.ThrowIfCancellationRequested();
+                string name = hostName.ToLowerInvariant();
+                string? gatewayIp = GetGatewayIp();
+                bool gateway = string.Equals(ip, gatewayIp, StringComparison.OrdinalIgnoreCase);
+                bool explicitRouterName = name.Contains("miwifi") || name.Contains("xiaoqiang") || name.Contains("openwrt") || name.Contains("asus") || name.Contains("tp-link") || name.Contains("tplink") || name.Contains("netgear") || name.Contains("huawei") || name.Contains("h3c") || name.Contains("小米路由") || name.Contains("华硕") || name.Contains("路由器") || name.Contains("网关") || name.Contains("router") || name.Contains("gateway") || name.Contains("路由");
+                bool managementPort = activePorts.Contains(80) || activePorts.Contains(443) || activePorts.Contains(8080) || activePorts.Contains(8443);
+                if (gateway || explicitRouterName)
                 {
+                    #region debug-point router-classification:记录路由器或DHCP判定依据和结果
+                    _ = ReportDebugAsync("router-classification", "DhcpScanner.IsLikelyRouterOrDhcp:decision", "路由器或DHCP判定完成", new
+                    {
+                        ip,
+                        gatewayIp,
+                        hostname = hostName,
+                        activePorts = activePorts.ToArray(),
+                        gateway,
+                        explicitRouterName,
+                        managementPort,
+                        result = true,
+                        reason = gateway ? "gateway" : "explicitRouterName"
+                    });
+                    #endregion
                     return true;
                 }
 
-                // 方法2：检查DHCP端口 (67)
-                if (await CheckPortAsync(ip, 67, 300))
+                bool result = managementPort && activePorts.Contains(53);
+                #region debug-point router-classification:记录路由器或DHCP判定依据和结果
+                _ = ReportDebugAsync("router-classification", "DhcpScanner.IsLikelyRouterOrDhcp:decision", "路由器或DHCP判定完成", new
                 {
-                    return true;
-                }
-
-                // 方法3：检查DNS端口 (53)
-                if (await CheckPortAsync(ip, 53, 300))
-                {
-                    return true;
-                }
-
-                return false;
+                    ip,
+                    gatewayIp,
+                    hostname = hostName,
+                    activePorts = activePorts.ToArray(),
+                    gateway,
+                    explicitRouterName,
+                    managementPort,
+                    result,
+                    reason = result ? "managementPortAndDhcpPort" : "no-router-signal"
+                });
+                #endregion
+                return result;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
             }
             catch
             {
@@ -212,22 +433,50 @@ namespace DhcpScanner
             }
         }
 
-        /// <summary>
-        /// 检查TCP端口是否开放
-        /// </summary>
-        private async Task<bool> CheckPortAsync(string ip, int port, int timeoutMs)
+        private async Task<int?> ProbePortAsync(string ip, int port, int timeoutMs, SemaphoreSlim semaphore, CancellationToken cancellationToken)
         {
+            await semaphore.WaitAsync(cancellationToken);
+            try
+            {
+                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                timeoutCts.CancelAfter(timeoutMs);
+                using var client = new TcpClient();
+                try
+                {
+                    await client.ConnectAsync(ip, port, timeoutCts.Token).ConfigureAwait(false);
+                    return client.Connected ? port : null;
+                }
+                catch (SocketException ex) when (ex.SocketErrorCode == SocketError.ConnectionRefused)
+                {
+                    return -port;
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    return null;
+                }
+                catch
+                {
+                    return null;
+                }
+            }
+            finally
+            {
+                semaphore.Release();
+            }
+        }
+
+        private async Task<bool> CheckPortAsync(string ip, int port, int timeoutMs, CancellationToken cancellationToken)
+        {
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(timeoutMs);
             try
             {
                 using var client = new TcpClient();
-                var connectTask = client.ConnectAsync(ip, port);
-                var timeoutTask = Task.Delay(timeoutMs);
-                
-                if (await Task.WhenAny(connectTask, timeoutTask) == connectTask)
-                {
-                    await connectTask;
-                    return client.Connected;
-                }
+                await client.ConnectAsync(ip, port, timeoutCts.Token);
+                return client.Connected;
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
                 return false;
             }
             catch
@@ -239,20 +488,22 @@ namespace DhcpScanner
         /// <summary>
         /// 获取MAC地址
         /// </summary>
-        private async Task<string> GetMacAddressAsync(string ip)
+        private Task<string> GetMacAddressAsync(string ip)
+        {
+            var lazyTask = _macCache.GetOrAdd(ip, key => new Lazy<Task<string>>(() => QueryMacAddressAsync(key)));
+            return lazyTask.Value;
+        }
+
+        private async Task<string> QueryMacAddressAsync(string ip)
         {
             try
             {
-                // 先尝试从ARP缓存获取
                 var mac = GetMacFromArpCache(ip);
                 if (!string.IsNullOrEmpty(mac))
                     return mac;
 
-                // 发送ARP请求
                 using var ping = new Ping();
                 await ping.SendPingAsync(ip, 200);
-
-                // 再次尝试从ARP缓存获取
                 return GetMacFromArpCache(ip) ?? "未知";
             }
             catch
@@ -308,12 +559,23 @@ namespace DhcpScanner
         /// <summary>
         /// 获取主机名
         /// </summary>
-        private async Task<string> GetHostNameAsync(string ip)
+        private async Task<string> GetHostNameAsync(string ip, CancellationToken cancellationToken)
         {
             try
             {
-                var hostEntry = await Dns.GetHostEntryAsync(ip);
+                cancellationToken.ThrowIfCancellationRequested();
+                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                timeoutCts.CancelAfter(800);
+                var hostEntry = await Dns.GetHostEntryAsync(ip, timeoutCts.Token);
                 return hostEntry.HostName;
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                return "未知";
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
             }
             catch
             {
@@ -332,6 +594,7 @@ namespace DhcpScanner
             _isScanning = true;
             _cancellationTokenSource = new CancellationTokenSource();
             _discoveredServers.Clear();
+            _macCache.Clear();
 
             try
             {
@@ -369,6 +632,8 @@ namespace DhcpScanner
                 }
 
                 // 按网段再按IP最后一段排序
+                await ApplyArpResultsAsync(allResults, _cancellationTokenSource.Token);
+
                 allResults.Sort((a, b) =>
                 {
                     string aIp = a.IpAddress.ToString();
@@ -440,6 +705,7 @@ namespace DhcpScanner
             _isScanning = true;
             _cancellationTokenSource = new CancellationTokenSource();
             _discoveredServers.Clear();
+            _macCache.Clear();
 
             long startNum = IpToLong(startIp);
             long endNum = IpToLong(endIp);
@@ -499,6 +765,8 @@ namespace DhcpScanner
                     });
 
                 // 按IP数值排序
+                await ApplyArpResultsAsync(allResults, _cancellationTokenSource.Token);
+
                 allResults.Sort((a, b) =>
                 {
                     long aNum = IpToLong(a.IpAddress.ToString());
@@ -506,6 +774,11 @@ namespace DhcpScanner
                     return aNum.CompareTo(bNum);
                 });
 
+                lock (_lock)
+                {
+                    _discoveredServers.Clear();
+                    _discoveredServers.AddRange(allResults);
+                }
                 foreach (var r in allResults)
                 {
                     ServerFound?.Invoke(this, r);
@@ -629,7 +902,16 @@ namespace DhcpScanner
                         {
                             if (gateway.Address.AddressFamily == AddressFamily.InterNetwork)
                             {
-                                return gateway.Address.ToString();
+                                string gatewayIp = gateway.Address.ToString();
+                                #region debug-point gateway-candidates:记录网卡和网关候选
+                                _ = ReportDebugAsync("gateway-candidates", "DhcpScanner.GetGatewayIp:gateway-enumeration", "枚举到网卡网关候选", new
+                                {
+                                    interfaceName = iface.Name,
+                                    interfaceDescription = iface.Description,
+                                    gateway = gatewayIp
+                                });
+                                #endregion
+                                return gatewayIp;
                             }
                         }
                     }

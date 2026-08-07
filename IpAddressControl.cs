@@ -1,4 +1,5 @@
 using System;
+using System.Net;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
@@ -18,6 +19,7 @@ namespace DhcpScanner
         private const uint WS_TABSTOP = 0x00010000;
 
         private const int WM_SETFOCUS = 0x0007;
+        private const int WM_SETFONT = 0x0030;
         private const int WM_USER = 0x0400;
         private const int IPM_SETADDRESS = WM_USER + 101;
         private const int IPM_GETADDRESS = WM_USER + 102;
@@ -48,7 +50,11 @@ namespace DhcpScanner
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
         private static extern IntPtr GetModuleHandle(string? lpModuleName);
 
+        [DllImport("gdi32.dll")]
+        private static extern bool DeleteObject(IntPtr hObject);
+
         private IntPtr _hwndIp;
+        private IntPtr _fontHandle;
         private string? _pendingAddress;
 
         static IpAddressControl()
@@ -79,6 +85,8 @@ namespace DhcpScanner
                 for (int field = 0; field < 4; field++)
                     SendMessage(_hwndIp, IPM_SETRANGE, (IntPtr)field, MakeRange(0, 255));
 
+                ApplyNativeFont();
+
                 if (_pendingAddress != null)
                 {
                     SetAddress(_pendingAddress);
@@ -92,6 +100,24 @@ namespace DhcpScanner
             base.OnResize(e);
             if (_hwndIp != IntPtr.Zero)
                 MoveWindow(_hwndIp, 0, 0, Width, Height, true);
+        }
+
+        protected override void OnFontChanged(EventArgs e)
+        {
+            base.OnFontChanged(e);
+            ApplyNativeFont();
+        }
+
+        private void ApplyNativeFont()
+        {
+            if (_hwndIp == IntPtr.Zero)
+                return;
+
+            IntPtr oldFont = _fontHandle;
+            _fontHandle = Font.ToHfont();
+            SendMessage(_hwndIp, WM_SETFONT, _fontHandle, (IntPtr)1);
+            if (oldFont != IntPtr.Zero)
+                DeleteObject(oldFont);
         }
 
         protected override void WndProc(ref Message m)
@@ -116,7 +142,9 @@ namespace DhcpScanner
             try
             {
                 Marshal.WriteInt32(lParam, 0);
-                SendMessage(_hwndIp, IPM_GETADDRESS, IntPtr.Zero, lParam);
+                int fieldCount = SendMessage(_hwndIp, IPM_GETADDRESS, IntPtr.Zero, lParam).ToInt32();
+                if (fieldCount < 4)
+                    return string.Empty;
                 uint addr = (uint)Marshal.ReadInt32(lParam);
                 return $"{(addr >> 24) & 0xFF}.{(addr >> 16) & 0xFF}.{(addr >> 8) & 0xFF}.{addr & 0xFF}";
             }
@@ -131,20 +159,34 @@ namespace DhcpScanner
         /// </summary>
         public void SetAddress(string ip)
         {
-            var parts = ip.Split('.');
-            if (parts.Length != 4 ||
-                !byte.TryParse(parts[0], out byte a) || !byte.TryParse(parts[1], out byte b) ||
-                !byte.TryParse(parts[2], out byte c) || !byte.TryParse(parts[3], out byte d))
+            if (!IPAddress.TryParse(ip.Trim(), out var address) || address.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
                 return;
+
+            var parts = address.ToString().Split('.');
+            byte a = byte.Parse(parts[0]);
+            byte b = byte.Parse(parts[1]);
+            byte c = byte.Parse(parts[2]);
+            byte d = byte.Parse(parts[3]);
+            string normalized = address.ToString();
 
             if (_hwndIp == IntPtr.Zero)
             {
-                _pendingAddress = ip;
+                _pendingAddress = normalized;
                 return;
             }
 
             uint addr = ((uint)a << 24) | ((uint)b << 16) | ((uint)c << 8) | d;
             SendMessage(_hwndIp, IPM_SETADDRESS, IntPtr.Zero, (IntPtr)addr);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (_fontHandle != IntPtr.Zero)
+            {
+                DeleteObject(_fontHandle);
+                _fontHandle = IntPtr.Zero;
+            }
+            base.Dispose(disposing);
         }
     }
 }
